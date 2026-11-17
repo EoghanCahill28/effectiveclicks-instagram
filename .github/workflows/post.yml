@@ -1,0 +1,31 @@
+name: Post to Instagram
+
+on:
+  schedule:
+    # Mon, Wed, Fri, Sun at 18:47 UTC (18:47 Irish winter time, 19:47 summer time)
+    - cron: "47 18 * * 0,1,3,5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instagram-post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Post next due item
+        env:
+          META_TOKEN: ${{ secrets.META_TOKEN }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+        run: |
+          git config user.name "effectiveclicks-bot"
+          git config user.email "bot@effectiveclicks.ie"
+          python post.py
