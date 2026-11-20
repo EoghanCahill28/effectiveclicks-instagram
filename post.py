@@ -22,8 +22,11 @@ import urllib.parse
 import urllib.request
 
 API = "https://graph.facebook.com/v24.0"
-TOKEN = os.environ["META_TOKEN"]
-IG_USER = os.environ["IG_USER_ID"]
+TOKEN = os.environ.get("META_TOKEN", "").strip()
+IG_USER = os.environ.get("IG_USER_ID", "").strip()
+if not TOKEN or not IG_USER:
+    sys.exit("META_TOKEN and/or IG_USER_ID secret is missing. Add both under "
+             "Settings → Secrets and variables → Actions. Nothing was posted.")
 REPO = os.environ["GITHUB_REPOSITORY"]
 BRANCH = os.environ.get("GITHUB_REF_NAME", "main")
 ROOT = pathlib.Path(__file__).parent
