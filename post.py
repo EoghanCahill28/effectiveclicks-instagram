@@ -21,12 +21,13 @@ import time
 import urllib.parse
 import urllib.request
 
-API = "https://graph.facebook.com/v24.0"
+IG_API = "https://graph.instagram.com/v24.0"   # Instagram API with Instagram Login (no Facebook Page needed)
+FB_API = "https://graph.facebook.com/v24.0"
 TOKEN = os.environ.get("META_TOKEN", "").strip()
-IG_USER = os.environ.get("IG_USER_ID", "").strip()
+IG_USER = os.environ.get("IG_USER_ID", "").strip() or "me"
 FB_PAGE = os.environ.get("FB_PAGE_ID", "").strip()  # optional: also post to the Facebook Page
-if not TOKEN or not IG_USER:
-    sys.exit("META_TOKEN and/or IG_USER_ID secret is missing. Add both under "
+if not TOKEN:
+    sys.exit("META_TOKEN secret is missing. Add it under "
              "Settings → Secrets and variables → Actions. Nothing was posted.")
 REPO = os.environ["GITHUB_REPOSITORY"]
 BRANCH = os.environ.get("GITHUB_REF_NAME", "main")
@@ -38,10 +39,10 @@ class MetaError(Exception):
     pass
 
 
-def call(method, path, token=None, **params):
+def call(method, path, token=None, api=None, **params):
     params["access_token"] = token or TOKEN
     data = urllib.parse.urlencode(params).encode()
-    url = f"{API}/{path}"
+    url = f"{api or IG_API}/{path}"
     if method == "GET":
         req = urllib.request.Request(f"{url}?{data.decode()}")
     else:
@@ -71,18 +72,29 @@ def raw_url(path):
 
 def post_to_facebook(images, caption):
     """Post the same image(s) and caption to the Facebook Page. Returns a link."""
-    page_token = call("GET", FB_PAGE, fields="access_token")["access_token"]
+    page_token = call("GET", FB_PAGE, api=FB_API, fields="access_token")["access_token"]
     if len(images) == 1:
-        r = call("POST", f"{FB_PAGE}/photos", token=page_token,
+        r = call("POST", f"{FB_PAGE}/photos", api=FB_API, token=page_token,
                  url=raw_url(images[0]), caption=caption)
         return f"https://www.facebook.com/{r.get('post_id', r['id'])}"
     params = {"message": caption}
     for i, img in enumerate(images):
-        pid = call("POST", f"{FB_PAGE}/photos", token=page_token,
+        pid = call("POST", f"{FB_PAGE}/photos", api=FB_API, token=page_token,
                    url=raw_url(img), published="false")["id"]
         params[f"attached_media[{i}]"] = json.dumps({"media_fbid": pid})
-    r = call("POST", f"{FB_PAGE}/feed", token=page_token, **params)
+    r = call("POST", f"{FB_PAGE}/feed", api=FB_API, token=page_token, **params)
     return f"https://www.facebook.com/{r['id']}"
+
+
+def token_days_left():
+    """Refresh the 60-day Instagram token and return how many days it has left."""
+    try:
+        r = call("GET", "refresh_access_token", api="https://graph.instagram.com",
+                 grant_type="ig_refresh_token")
+        return int(r.get("expires_in", 0)) // 86400
+    except MetaError as e:
+        print(f"Token refresh check failed: {e}")
+        return None
 
 
 def main():
@@ -119,8 +131,13 @@ def main():
     subprocess.run(["git", "add", "-A"], check=True)
     subprocess.run(["git", "commit", "-m", f"Posted {item.name}"], check=True)
     subprocess.run(["git", "push"], check=True)
+    days = token_days_left()
+    print(f"Token days left: {days}")
     if fb_failed:
         sys.exit(1)  # so GitHub emails about the Facebook failure
+    if days is not None and days < 10:
+        sys.exit(f"Post went out, but the Instagram token expires in {days} days. "
+                 "Generate a new one in the Meta app dashboard and update the META_TOKEN secret.")
 
 
 def post_to_instagram(images, caption):
